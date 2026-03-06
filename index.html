@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>IP менеджер с проверкой соединений</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --ui-scale: 1;
+      --pad: calc(16px * var(--ui-scale));
+      --gap: calc(16px * var(--ui-scale));
+      --radius: calc(8px * var(--ui-scale));
+      --font: calc(14px * var(--ui-scale));
+      --primary: #1e88e5;
+      --danger: #e53935;
+      --success: #4caf50;
+      --bg: #f5f7fa;
+      --panel-bg: #ffffff;
+      --border: #ddd;
+      --operator-item-height: calc(40px * var(--ui-scale));
+      --ip-item-height: calc(80px * var(--ui-scale));
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      font-size: var(--font);
+      color: #333;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: calc(320px * var(--ui-scale)) 1fr;
+      gap: var(--gap);
+      padding: var(--pad);
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    header {
+      grid-column: 1 / -1;
+      padding: calc(16px * var(--ui-scale));
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { margin: 0; font-size: calc(20px * var(--ui-scale)); font-weight: 500; }
+
+    .panel {
+      background: var(--panel-bg);
+      border-radius: var(--radius);
+      padding: calc(16px * var(--ui-scale));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .section-title { font-weight: 600; margin-bottom:calc(12px * var(--ui-scale)); font-size: calc(16px * var(--ui-scale)); }
+    .row { display: flex; gap: calc(8px * var(--ui-scale)); align-items: center; flex-wrap: wrap; }
+    .stretch { flex: 1; min-width: 0; }
+
+    input, select, textarea {
+      padding: calc(8px * var(--ui-scale));
+      border: 1px solid #ccc;
+      border-radius: calc(4px * var(--ui-scale));
+      font-size: var(--font);
+      font-family: inherit;
+      background: white;
+    }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); border-color: transparent; }
+    input:disabled, select:disabled, textarea:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
+
+    button {
+      padding: calc(8px * var(--ui-scale)) calc(12px * var(--ui-scale));
+      border-radius: calc(4px * var(--ui-scale));
+      border: 1px solid #bbb;
+      background: #f0f0f0;
+      cursor: pointer;
+      font-size: var(--font);
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    button:hover { background: #e0e0e0; }
+    button.primary { background: var(--primary); color: white; border: none; }
+    button.primary:hover { background: #1976d2; }
+    button.danger { background: var(--danger); color: white; border: none; }
+    button.danger:hover { background: #d32f2f; }
+    button.success { background: var(--success); color: white; border: none; }
+    button.success:hover { background: #388e3c; }
+    button:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; opacity: 0.7; }
+
+    .log {
+      font-family: "SF Mono", "Roboto Mono", Menlo, monospace;
+      font-size: calc(12px * var(--ui-scale));
+      white-space: pre-wrap;
+      background: #1a1a1a;
+      color: #f0f0f0;
+      padding: calc(12px * var(--ui-scale));
+      border-radius: calc(6px * var(--ui-scale));
+      overflow-y: auto;
+      line-height: 1.5;
+      height: calc(200px * var(--ui-scale));
+      border: 1px solid #333;
+    }
+
+    .divider { width: 1px; height: calc(24px * var(--ui-scale)); background: var(--border); margin: 0 calc(4px * var(--ui-scale)); }
+    #logPanel { grid-column: 1 / -1; }
+
+    .ip-list-container {
+        flex: 1;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: calc(4px * var(--ui-scale));
+        background: #fff;
+        max-height: calc(5 * var(--ip-item-height));
+        box-sizing: border-box;
+    }
+    .ip-item {
+        display: flex; align-items: center; gap: calc(10px * var(--ui-scale));
+        padding: calc(8px * var(--ui-scale)) calc(10px * var(--ui-scale));
+        border-bottom: 1px solid #eee;
+        transition: background 0.1s;
+        box-sizing: border-box;
+    }
+    .ip-item:hover { background: #f9f9f9; }
+    .ip-checkbox { width: calc(18px * var(--ui-scale)); height: calc(18px * var(--ui-scale)); margin: 0; cursor: pointer; }
+    .ip-details { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(2px * var(--ui-scale)); }
+    .ip-address-row { display: flex; align-items: center; gap: calc(8px * var(--ui-scale)); }
+    .ip-address { font-weight: 600; font-size: calc(15px * var(--ui-scale)); }
+    .ip-desc { font-size: calc(13px * var(--ui-scale)); color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ip-meta { font-size: calc(12px * var(--ui-scale)); color: #888; display: flex; gap: calc(10px * var(--ui-scale)); align-items: center; }
+    .operator-badge { display: inline-flex; align-items: center; gap: 4px; background: #eee; padding: 2px 6px; border-radius: 12px; font-size: calc(11px * var(--ui-scale)); font-weight: 500; }
+    .status-badge {
+        font-size: calc(12px * var(--ui-scale)); padding: calc(4px * var(--ui-scale)) calc(8px * var(--ui-scale));
+        border-radius: calc(12px * var(--ui-scale)); font-weight: 500; display: inline-flex; align-items: center;
+    }
+    .status-ok { background: #e8f5e9; color: #2e7d32; }
+    .status-bad { background: #ffebee; color: #c62828; }
+    .ip-actions { display: inline-flex; gap: calc(6px * var(--ui-scale)); }
+
+    .controls-row { display: flex; align-items: center; gap: calc(8px * var(--ui-scale)); padding-bottom: calc(12px * var(--ui-scale)); border-bottom: 1px solid var(--border); margin-bottom: calc(12px * var(--ui-scale)); flex-wrap: wrap; }
+    .filters-row { display: flex; align-items: center; gap: calc(12px * var(--ui-scale)); padding: calc(8px * var(--ui-scale)); background: #f4f4f4; border-radius: calc(4px * var(--ui-scale)); margin-bottom: calc(12px * var(--ui-scale)); flex-wrap: wrap; border: 1px solid var(--border); }
+    .filter-group { display: flex; align-items: center; gap: calc(6px * var(--ui-scale)); }
+    .filter-label { font-size: calc(12px * var(--ui-scale)); color: #666; font-weight: 500; }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+      #operatorsPanel, #ipPanel { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>IP менеджер с проверкой соединений</h1>
+  </header>
+
+  <main class="container">
+    <!-- Панель операторов -->
+    <section class="panel" id="operatorsPanel">
+      <div class="section-title">Операторы связи</div>
+      <div style="display: flex; flex-direction: column; gap: var(--gap); flex: 1;">
+        <div class="row">
+            <input id="newOperatorName" placeholder="Название оператора" class="stretch" />
+            <button id="addOperatorBtn" class="primary">Добавить</button>
+        </div>
+        <div id="operatorsList" style="max-height: calc(5 * var(--operator-item-height)); overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 4px; box-sizing: border-box;"></div>
+      </div>
+    </section>
+
+    <!-- Панель IP адресов -->
+    <section class="panel" id="ipPanel" style="min-height: 500px;">
+      <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Список IP адресов</span>
+          <div style="display:flex; gap: 8px;">
+              <button id="importFileBtn" title="Импорт из CSV файла">Импорт</button>
+              <button id="exportFileBtn" title="Экспорт в CSV файл">Экспорт</button>
+          </div>
+      </div>
+
+      <div class="controls-row" id="addIpRow">
+        <input id="ipInput" placeholder="IP адрес или хост" style="flex: 1.5;" />
+        <input id="ipDescriptionInput" placeholder="Описание (опционально)" style="flex: 2;" />
+        <select id="operatorSelect" style="flex: 1;"><option value="">Без оператора</option></select>
+        <input id="timeoutInput" type="number" min="100" step="100" placeholder="Таймаут (мс)" style="width: 100px;" title="По умолчанию 5000 мс" />
+        <input id="pingAttempts" type="number" min="1" max="10" step="1" placeholder="Попытки" style="width: 80px;" title="По умолчанию 4" />
+        <button id="addIpBtn" class="primary">Добавить</button>
+        <button id="cancelEditBtn" style="display:none;">Отмена</button>
+      </div>
+
+      <div class="filters-row">
+        <div class="filter-group">
+            <input id="selectAllIps" type="checkbox" class="ip-checkbox" />
+            <label for="selectAllIps" style="font-weight: 500; cursor:pointer;">Все</label>
+        </div>
+        <div class="divider"></div>
+        <div class="filter-group stretch">
+          <span class="filter-label">IP:</span>
+          <input id="ipFilterInput" placeholder="Поиск по IP..." class="stretch" style="padding: 4px 8px; font-size: calc(13px * var(--ui-scale));" />
+        </div>
+        <div class="filter-group stretch">
+            <span class="filter-label">Описание:</span>
+            <input id="descFilterInput" placeholder="Поиск по описанию..." class="stretch" style="padding: 4px 8px; font-size: calc(13px * var(--ui-scale));" />
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Оператор:</span>
+          <select id="operatorFilter" style="padding: 4px 8px; font-size: calc(13px * var(--ui-scale)); max-width: 150px;">
+            <option value="ALL">Все</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ip-list-container">
+        <div id="ipList" style="padding: 4px;"></div>
+      </div>
+
+      <div class="row" style="margin-top: var(--gap); justify-content: flex-end; background: #f9f9f9; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
+        <button id="resetStatusBtn" style="margin-right: auto;">Сбросить статусы</button>
+        <button id="saveReportBtn" class="success">Сохранить отчет</button>
+        <button id="checkSelectedBtn" class="primary" style="min-width: 120px;">Проверить выбранные</button>
+      </div>
+    </section>
+
+    <!-- Панель логов -->
+    <section class="panel" id="logPanel">
+      <div class="section-title">Журнал событий</div>
+      <div id="workLog" class="log"></div>
+      <div style="text-align: right; margin-top: 8px;">
+          <button id="clearLogBtn">Очистить журнал</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Скрытые элементы для работы с файлами -->
+  <input type="file" id="fileImportInput" accept=".csv" class="hidden" />
+  <a id="fileExportLink" class="hidden"></a>
+  <a id="reportExportLink" class="hidden"></a>
+
+  <script>
+    // --- System Ping Abstraction ---
+    let nodePingExec = null;
+    try {
+      if (typeof process !== "undefined" && process.versions?.node && typeof require === "function") {
+        nodePingExec = require("child_process").exec;
+      }
+    } catch {}
+
+    function normalizeHost(s) {
+      s = String(s || "").trim();
+      if (!s) return "";
+      try { if (s.includes("://")) return new URL(s).hostname; } catch {}
+      return s.replace(/\/.*$/, "").replace(/:\d+$/, "");
+    }
+
+    function detectPingSuccess(stdout) {
+      const lower = String(stdout || "").toLowerCase();
+      const negative = ["100% packet loss", "unreachable", "timed out", "could not find host", "unknown host", "превышен интервал", "узел недоступен"];
+      if (negative.some(m => lower.includes(m))) return false;
+      return /ttl=\d+/i.test(lower) || /time[=<]\s*\d+(\.\d+)?\s*ms/i.test(lower) || /bytes from .+ time[=<]?\s*\d+/i.test(lower);
+    }
+
+    function pingViaSystem(hostInput, timeoutMs, attemptNumber) {
+      const host = normalizeHost(hostInput);
+      if (!host) return Promise.resolve({ ok: false, time: 0, error: "Empty host" });
+
+      if (nodePingExec) {
+        const isWin = process.platform === "win32";
+        const to = Math.max(500, Number(timeoutMs) || 2000);
+        const cmd = isWin ? `ping -n 1 -w ${to} "${host}"` : `ping -c 1 -W ${Math.ceil(to/1000)} "${host}"`;
+        const start = Date.now();
+        return new Promise(resolve => {
+            nodePingExec(cmd, (err, stdout, stderr) => {
+                const time = Date.now() - start;
+                const ok = detectPingSuccess(stdout);
+                resolve({ 
+                  ok, 
+                  time, 
+                  attempt: attemptNumber,
+                  raw: stdout,
+                  error: err?.message || null
+                });
+            });
+        });
+      }
+      return new Promise(r => setTimeout(() => r({ 
+        ok: false, 
+        time: 0, 
+        attempt: attemptNumber,
+        error: "Browser limitation: Cannot ping directly."
+      }), 500));
+    }
+
+    // --- Data & State ---
+    const STORAGE_IPS = "ip_mgr_ips_v2";
+    const STORAGE_OPS = "ip_mgr_ops_v2";
+    let operators = loadData(STORAGE_OPS) || [];
+    let ips = (loadData(STORAGE_IPS) || []).map(ip => ({ description: "", ...ip, selected: false }));
+    let editingIpId = null;
+    let logBuffer = [];
+    let initialized = false;
+
+    function loadData(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
+    function saveData(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
+    function saveAll() { saveData(STORAGE_OPS, operators); saveData(STORAGE_IPS, ips); }
+
+    // --- UI References ---
+    const elements = {
+        opList: document.getElementById("operatorsList"), 
+        newOpName: document.getElementById("newOperatorName"), 
+        addOpBtn: document.getElementById("addOperatorBtn"),
+        ipList: document.getElementById("ipList"), 
+        ipInput: document.getElementById("ipInput"), 
+        ipDescInput: document.getElementById("ipDescriptionInput"),
+        opSelect: document.getElementById("operatorSelect"), 
+        timeoutInput: document.getElementById("timeoutInput"), 
+        attemptsInput: document.getElementById("pingAttempts"),
+        addIpBtn: document.getElementById("addIpBtn"), 
+        cancelEditBtn: document.getElementById("cancelEditBtn"),
+        ipFilter: document.getElementById("ipFilterInput"), 
+        descFilter: document.getElementById("descFilterInput"), 
+        opFilter: document.getElementById("operatorFilter"), 
+        selectAll: document.getElementById("selectAllIps"),
+        checkBtn: document.getElementById("checkSelectedBtn"), 
+        resetBtn: document.getElementById("resetStatusBtn"), 
+        reportBtn: document.getElementById("saveReportBtn"),
+        log: document.getElementById("workLog"),
+        fileImportInput: document.getElementById("fileImportInput"),
+        fileExportLink: document.getElementById("fileExportLink"),
+        reportExportLink: document.getElementById("reportExportLink"),
+        importFileBtn: document.getElementById("importFileBtn"),
+        exportFileBtn: document.getElementById("exportFileBtn"),
+        clearLogBtn: document.getElementById("clearLogBtn")
+    };
+
+    // --- Logging ---
+    function log(msg) {
+        logBuffer.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
+        if (logBuffer.length > 200) logBuffer.shift();
+        elements.log.textContent = logBuffer.join("\n");
+        elements.log.scrollTop = elements.log.scrollHeight;
+    }
+
+    function clearLog() {
+        logBuffer = [];
+        elements.log.textContent = "";
+    }
+
+    // --- Enable/Disable Inputs ---
+    function enableAllInputs() {
+        const inputs = document.querySelectorAll('input, select, button, textarea');
+        inputs.forEach(input => {
+            if (!input.hasAttribute('data-keep-disabled')) {
+                input.disabled = false;
+            }
+        });
+    }
+
+    function disableAllInputs() {
+        const inputs = document.querySelectorAll('input, select, button, textarea');
+        inputs.forEach(input => {
+            if (!input.hasAttribute('data-always-enabled')) {
+                input.disabled = true;
+            }
+        });
+    }
+
+    // --- Rendering ---
+    function randomColor(seed) { return `hsl(${(seed * 137) % 360}, 70%, 45%)`; }
+
+    function renderOperators() {
+        elements.opFilter.innerHTML = '<option value="ALL">Все операторы</option>';
+        elements.opSelect.innerHTML = '<option value="">Без оператора</option>';
+        elements.opList.innerHTML = "";
+        operators.forEach(op => {
+            elements.opFilter.add(new Option(op.name, op.id));
+            elements.opSelect.add(new Option(op.name, op.id));
+            const div = document.createElement("div");
+            div.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding: 6px; border-bottom:1px solid #eee; box-sizing: border-box;";
+            div.innerHTML = `<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:${randomColor(op.id)}"></span>${op.name}</span>`;
+            const delBtn = document.createElement("button"); 
+            delBtn.textContent = "×"; 
+            delBtn.style.padding = "2px 6px"; 
+            delBtn.className = "danger";
+            delBtn.onclick = () => {
+                if (confirm(`Удалить оператора "${op.name}"? IP адреса останутся без оператора.`)) {
+                    operators = operators.filter(o => o.id !== op.id);
+                    ips.forEach(ip => { if (ip.operatorId === op.id) ip.operatorId = ""; });
+                    saveAll(); renderOperators(); renderIps();
+                }
+            };
+            div.appendChild(delBtn);
+            elements.opList.appendChild(div);
+        });
+    }
+
+    function renderIps() {
+        const fIp = elements.ipFilter.value.toLowerCase();
+        const fDesc = elements.descFilter.value.toLowerCase();
+        const fOp = elements.opFilter.value;
+        const filtered = ips.filter(ip => {
+            if (fOp !== "ALL" && String(ip.operatorId) !== fOp) return false;
+            if (fIp && !ip.ip.toLowerCase().includes(fIp)) return false;
+            if (fDesc && !ip.description.toLowerCase().includes(fDesc)) return false;
+            return true;
+        });
+
+        elements.ipList.innerHTML = "";
+        if (!filtered.length) { 
+            elements.ipList.innerHTML = '<div style="padding:16px; color:#777; text-align:center;">Список пуст или не найдены совпадения.</div>'; 
+            return; 
+        }
+
+        filtered.forEach(ip => {
+            const op = operators.find(o => o.id === ip.operatorId);
+            const row = document.createElement("div"); 
+            row.className = "ip-item";
+            row.innerHTML = `
+                <input type="checkbox" class="ip-checkbox" ${ip.selected ? "checked" : ""}>
+                <div class="ip-details">
+                    <div class="ip-address-row">
+                        <span class="ip-address">${ip.ip}</span>
+                        ${op ? `<span class="operator-badge" style="background:${randomColor(op.id)}20; color:${randomColor(op.id)}"><span style="width:6px;height:6px;border-radius:50%;background:${randomColor(op.id)}"></span>${op.name}</span>` : ""}
+                    </div>
+                    ${ip.description ? `<span class="ip-desc">${ip.description}</span>` : ""}
+                    <div class="ip-meta">
+                        <span>Таймаут: ${ip.timeout||5000}ms</span>
+                        <span>Попытки: ${ip.attempts||4}</span>
+                        ${ip.lastCheck ? `<span class="status-badge ${ip.lastCheck.ok ? 'status-ok' : 'status-bad'}">${ip.lastCheck.ok ? '✔ OK' : '✖ FAIL'} (${ip.lastCheck.stats}, ~${ip.lastCheck.avg}ms)</span>` : ""}
+                    </div>
+                </div>
+                <div class="ip-actions">
+                    <button class="edit-btn">Ред.</button>
+                    <button class="danger del-btn">Уд.</button>
+                </div>`;
+
+            const checkbox = row.querySelector(".ip-checkbox");
+            checkbox.onchange = (e) => { 
+                ip.selected = e.target.checked; 
+                saveData(STORAGE_IPS, ips); 
+            };
+            
+            row.querySelector(".edit-btn").onclick = () => startEdit(ip);
+            row.querySelector(".del-btn").onclick = () => { 
+                if(confirm("Удалить IP?")) { 
+                    ips = ips.filter(i => i.id !== ip.id); 
+                    saveAll(); 
+                    renderIps(); 
+                }
+            };
+            elements.ipList.appendChild(row);
+        });
+        elements.selectAll.checked = filtered.length > 0 && filtered.every(i => i.selected);
+    }
+
+    function startEdit(ip) {
+        editingIpId = ip.id;
+        elements.ipInput.value = ip.ip;
+        elements.ipDescInput.value = ip.description;
+        elements.opSelect.value = ip.operatorId || "";
+        elements.timeoutInput.value = ip.timeout || "";
+        elements.attemptsInput.value = ip.attempts || "";
+        elements.addIpBtn.textContent = "Сохранить";
+        elements.cancelEditBtn.style.display = "inline-block";
+        window.scrollTo({ top: elements.addIpRow.offsetTop - 20, behavior: 'smooth' });
+    }
+
+    function resetForm() {
+        editingIpId = null;
+        elements.ipInput.value = elements.ipDescInput.value = elements.opSelect.value = elements.timeoutInput.value = elements.attemptsInput.value = "";
+        elements.addIpBtn.textContent = "Добавить";
+        elements.cancelEditBtn.style.display = "none";
+    }
+
+    // --- Core Event Listeners ---
+    elements.addOpBtn.onclick = () => {
+        try {
+            const name = elements.newOpName.value.trim();
+            if (!name) { 
+                alert("Введите название оператора"); 
+                elements.newOpName.focus();
+                return; 
+            }
+            operators.push({ id: Date.now(), name });
+            elements.newOpName.value = "";
+            saveAll(); renderOperators(); renderIps();
+        } catch (error) {
+            console.error("Ошибка при добавлении оператора:", error);
+            alert("Произошла ошибка при добавлении оператора. Проверьте консоль для подробностей.");
+        }
+    };
+
+    elements.addIpBtn.onclick = () => {
+        try {
+            const ipAddr = elements.ipInput.value.trim();
+            if (!ipAddr) { 
+                alert("Введите IP адрес"); 
+                elements.ipInput.focus();
+                return; 
+            }
+            const ipData = {
+                ip: ipAddr,
+                description: elements.ipDescInput.value.trim(),
+                operatorId: elements.opSelect.value ? Number(elements.opSelect.value) : "",
+                timeout: Number(elements.timeoutInput.value) || 5000,
+                attempts: Number(elements.attemptsInput.value) || 4
+            };
+
+            if (editingIpId) {
+                ips = ips.map(i => i.id === editingIpId ? { ...i, ...ipData } : i);
+            } else {
+                ips.push({ id: Date.now(), ...ipData, selected: false, lastCheck: null });
+            }
+            saveAll(); resetForm(); renderIps();
+        } catch (error) {
+            console.error("Ошибка при добавлении/редактировании IP:", error);
+            alert("Произошла ошибка при добавлении/редактировании IP. Проверьте консоль для подробностей.");
+        }
+    };
+
+    elements.cancelEditBtn.onclick = resetForm;
+    
+    elements.ipFilter.addEventListener("input", renderIps);
+    elements.descFilter.addEventListener("input", renderIps);
+    elements.opFilter.addEventListener("change", renderIps);
+
+    elements.selectAll.onchange = (e) => {
+        const isChecked = e.target.checked;
+        const fIp = elements.ipFilter.value.toLowerCase();
+        const fDesc = elements.descFilter.value.toLowerCase();
+        const fOp = elements.opFilter.value;
+        ips.forEach(ip => {
+             if ((fOp === "ALL" || String(ip.operatorId) === fOp) &&
+                 (!fIp || ip.ip.toLowerCase().includes(fIp)) &&
+                 (!fDesc || ip.description.toLowerCase().includes(fDesc))) {
+                 ip.selected = isChecked;
+             }
+        });
+        saveData(STORAGE_IPS, ips); renderIps();
+    };
+
+    // --- Ping Testing with Detailed Logging ---
+    elements.checkBtn.onclick = async () => {
+        const toCheck = ips.filter(i => i.selected);
+        if (!toCheck.length) return alert("Выберите IP адреса для проверки.");
+        
+        log(`Запуск проверки ${toCheck.length} адресов...`);
+        const originalText = elements.checkBtn.textContent;
+        elements.checkBtn.disabled = true; 
+        elements.checkBtn.textContent = "Проверка...";
+
+        try {
+            for (const ip of toCheck) {
+                log(`Проверка: ${ip.ip} (${ip.description || "без описания"})...`);
+                let okCount = 0, totalTime = 0, successTimes = [];
+                
+                for (let i = 0; i < (ip.attempts || 4); i++) {
+                    const attemptNum = i + 1;
+                    const res = await pingViaSystem(ip.ip, ip.timeout || 5000, attemptNum);
+                    
+                    if (res.ok) {
+                        okCount++;
+                        totalTime += res.time;
+                        successTimes.push(res.time);
+                        log(`  Попытка ${attemptNum}/${ip.attempts || 4}: УСПЕХ (${res.time}ms)`);
+                    } else {
+                        log(`  Попытка ${attemptNum}/${ip.attempts || 4}: ОШИБКА${res.error ? ` - ${res.error}` : ""}`);
+                    }
+                }
+                
+                const avg = successTimes.length ? Math.round(totalTime / successTimes.length) : 0;
+                ip.lastCheck = { 
+                    ok: okCount > 0, 
+                    stats: `${okCount}/${ip.attempts || 4}`, 
+                    avg: avg,
+                    lastCheckTime: new Date().toISOString()
+                };
+                
+                log(`Результат ${ip.ip}: ${ip.lastCheck.ok ? "OK" : "FAIL"} (${ip.lastCheck.stats})${avg ? `, среднее: ${avg}ms` : ""}`);
+                saveData(STORAGE_IPS, ips); 
+                renderIps();
+            }
+        } catch (error) {
+            console.error("Ошибка при проверке IP:", error);
+            log(`Ошибка при проверке: ${error.message}`);
+        } finally {
+            elements.checkBtn.disabled = false; 
+            elements.checkBtn.textContent = originalText;
+            log("Проверка завершена.");
+        }
+    };
+
+    elements.resetBtn.onclick = () => {
+        if(!confirm("Сбросить статусы проверки для ВСЕХ IP адресов в списке?")) return;
+        ips.forEach(ip => ip.lastCheck = null);
+        saveAll(); renderIps(); log("Статусы проверки сброшены.");
+    };
+
+    // --- File Import/Export ---
+    elements.importFileBtn.onclick = () => elements.fileImportInput.click();
+
+    elements.fileImportInput.onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const text = event.target.result;
+                processCsvImport(text);
+            } catch (error) {
+                console.error("Ошибка при импорте:", error);
+                alert("Ошибка при импорте файла: " + error.message);
+            } finally {
+                elements.fileImportInput.value = "";
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    };
+
+    function processCsvImport(csvText) {
+        const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) return alert("Файл пуст или содержит только заголовки");
+        
+        const header = lines[0].toLowerCase();
+        const hasDesc = header.includes("description") || header.includes("описание");
+        const hasOperator = header.includes("operator") || header.includes("оператор");
+        const hasTimeout = header.includes("timeout") || header.includes("таймаут");
+        const hasAttempts = header.includes("attempts") || header.includes("попытки");
+        
+        let updated = 0, added = 0, errors = 0;
+        
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            
+            const parts = parseCsvLine(line);
+            if (parts.length < 1) continue;
+            
+            const ipAddr = parts[0].trim();
+            if (!ipAddr) { errors++; continue; }
+            
+            let opName = "";
+            let desc = "";
+            let timeout = 5000;
+            let attempts = 4;
+            
+            if (hasOperator && parts.length > 1) opName = parts[1].trim();
+            if (hasDesc && parts.length > 2) desc = parts[2].trim();
+            if (hasTimeout && parts.length > 3) timeout = parseInt(parts[3]) || 5000;
+            if (hasAttempts && parts.length > 4) attempts = parseInt(parts[4]) || 4;
+            
+            let opId = "";
+            if (opName) {
+                const existingOp = operators.find(o => o.name.toLowerCase() === opName.toLowerCase());
+                if (existingOp) {
+                    opId = existingOp.id;
+                } else {
+                    opId = Date.now() + Math.random();
+                    operators.push({ id: opId, name: opName });
+                }
+            }
+            
+            const existingIdx = ips.findIndex(ip => ip.ip.toLowerCase() === ipAddr.toLowerCase());
+            if (existingIdx >= 0) {
+                ips[existingIdx] = { 
+                    ...ips[existingIdx], 
+                    description: desc || ips[existingIdx].description,
+                    operatorId: opId || ips[existingIdx].operatorId,
+                    timeout: timeout,
+                    attempts: attempts
+                };
+                updated++;
+            } else {
+                ips.push({ 
+                    id: Date.now() + Math.random(), 
+                    ip: ipAddr,
+                    description: desc,
+                    operatorId: opId,
+                    timeout: timeout,
+                    attempts: attempts,
+                    selected: false,
+                    lastCheck: null
+                });
+                added++;
+            }
+        }
+        
+        saveAll(); 
+        renderOperators(); 
+        renderIps();
+        log(`Импорт завершен. Обновлено: ${updated}, добавлено: ${added}, ошибок: ${errors}`);
+        alert(`Импорт завершен.\nОбновлено: ${updated}\nДобавлено: ${added}\nОшибок: ${errors}`);
+    }
+
+    function parseCsvLine(line) {
+        const result = [];
+        let inQuotes = false;
+        let current = "";
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current);
+                current = "";
+            } else {
+                current += char;
+            }
+        }
+        result.push(current);
+        return result;
+    }
+
+    elements.exportFileBtn.onclick = () => {
+        try {
+            const csvContent = generateCsvContent();
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            elements.fileExportLink.href = url;
+            elements.fileExportLink.download = `ip_list_${new Date().toISOString().slice(0,10)}.csv`;
+            elements.fileExportLink.click();
+            URL.revokeObjectURL(url);
+            log("Экспорт списка IP завершен. Файл скачивается.");
+        } catch (error) {
+            console.error("Ошибка при экспорте:", error);
+            alert("Ошибка при экспорте: " + error.message);
+        }
+    };
+
+    function generateCsvContent() {
+        let csv = "IP,Оператор,Описание,Таймаут(мс),Попытки,Статус,Успешные,Среднее время(мс)\n";
+        ips.forEach(ip => {
+            const op = operators.find(o => o.id === ip.operatorId);
+            const status = ip.lastCheck ? (ip.lastCheck.ok ? "OK" : "FAIL") : "Не проверен";
+            const stats = ip.lastCheck ? ip.lastCheck.stats : "";
+            const avg = ip.lastCheck ? ip.lastCheck.avg : "";
+            csv += `"${ip.ip}","${op ? op.name : ""}","${ip.description || ""}",${ip.timeout || 5000},${ip.attempts || 4},"${status}","${stats}",${avg}\n`;
+        });
+        return csv;
+    }
+
+    // --- Report Generation (Excel CSV) ---
+    elements.reportBtn.onclick = () => {
+        try {
+            const checked = ips.filter(i => i.lastCheck);
+            if (!checked.length) return alert("Нет проверенных адресов для отчета.");
+            
+            const date = new Date().toLocaleString();
+            
+            let csv = generateReportCsvContent();
+            
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            elements.reportExportLink.href = url;
+            elements.reportExportLink.download = `ip_report_${new Date().toISOString().slice(0,10)}.csv`;
+            elements.reportExportLink.click();
+            URL.revokeObjectURL(url);
+            log("Отчет сгенерирован и сохранен в CSV файл.");
+        } catch (error) {
+            console.error("Ошибка при генерации отчета:", error);
+            alert("Ошибка при генерации отчета: " + error.message);
+        }
+    };
+
+    function generateReportCsvContent() {
+        const checked = ips.filter(i => i.lastCheck);
+        const success = checked.filter(i => i.lastCheck.ok);
+        const fail = checked.filter(i => !i.lastCheck.ok);
+        const date = new Date().toLocaleString();
+        
+        let csv = "";
+        
+        csv += "ОТЧЕТ О ПРОВЕРКЕ IP АДРЕСОВ\n";
+        csv += `Дата генерации:,${date}\n`;
+        csv += `Всего проверено адресов:,${checked.length}\n`;
+        csv += `Успешно доступно:,${success.length}\n`;
+        csv += `Недоступно:,${fail.length}\n\n`;
+        
+        csv += "=== СВОДКА ПО ОПЕРАТОРАМ ===\n";
+        csv += "Оператор,Всего проверок,Успешно,Неудачно,Процент успеха\n";
+        
+        const operatorStats = {};
+        checked.forEach(ip => {
+            const opId = ip.operatorId;
+            if (!operatorStats[opId]) {
+                const op = operators.find(o => o.id === opId);
+                operatorStats[opId] = { 
+                    name: op ? op.name : "Без оператора", 
+                    total: 0, 
+                    ok: 0, 
+                    fail: 0 
+                };
+            }
+            operatorStats[opId].total++;
+            if (ip.lastCheck.ok) operatorStats[opId].ok++;
+            else operatorStats[opId].fail++;
+        });
+        
+        Object.values(operatorStats).forEach(stat => {
+            const percent = stat.total > 0 ? ((stat.ok / stat.total) * 100).toFixed(1) : 0;
+            csv += `"${stat.name}",${stat.total},${stat.ok},${stat.fail},${percent}%\n`;
+        });
+        
+        csv += "\n";
+        
+        csv += "=== ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО IP АДРЕСАМ ===\n";
+        csv += "№,IP адрес,Оператор,Описание,Таймаут(мс),Попытки,Статус,Успешные попытки,Среднее время(мс),Дата проверки\n";
+        
+        checked.forEach((ip, idx) => {
+            const op = operators.find(o => o.id === ip.operatorId);
+            const status = ip.lastCheck.ok ? "OK" : "FAIL";
+            const checkDate = new Date(ip.lastCheck.lastCheckTime).toLocaleString();
+            
+            csv += `${idx+1},"${ip.ip}","${op ? op.name : ""}","${ip.description || ""}",`;
+            csv += `${ip.timeout || 5000},${ip.attempts || 4},"${status}","${ip.lastCheck.stats}",`;
+            csv += `${ip.lastCheck.avg || 0},"${checkDate}"\n`;
+        });
+        
+        csv += "\n";
+        
+        if (success.length) {
+            csv += "=== УСПЕШНЫЕ СОЕДИНЕНИЯ ===\n";
+            csv += "№,IP адрес,Оператор,Описание,Успешные попытки,Среднее время(мс)\n";
+            success.forEach((ip, idx) => {
+                const op = operators.find(o => o.id === ip.operatorId);
+                csv += `${idx+1},"${ip.ip}","${op ? op.name : ""}","${ip.description || ""}","${ip.lastCheck.stats}",${ip.lastCheck.avg}\n`;
+            });
+            csv += "\n";
+        }
+        
+        if (fail.length) {
+            csv += "=== НЕДОСТУПНЫЕ АДРЕСА ===\n";
+            csv += "№,IP адрес,Оператор,Описание,Успешные попытки\n";
+            fail.forEach((ip, idx) => {
+                const op = operators.find(o => o.id === ip.operatorId);
+                csv += `${idx+1},"${ip.ip}","${op ? op.name : ""}","${ip.description || ""}","${ip.lastCheck.stats}"\n`;
+            });
+        }
+        
+        return csv;
+    }
+
+    // --- Clear Log Button ---
+    elements.clearLogBtn.onclick = clearLog;
+
+    // --- UI Scale Adjustment ---
+    function adjustUiScale() {
+        const scale = Math.min(window.innerWidth / 1200, window.innerHeight / 800);
+        document.documentElement.style.setProperty("--ui-scale", Math.max(0.8, Math.min(1.1, scale)).toFixed(2));
+    }
+
+    // --- Initialization ---
+    function init() {
+        if (!initialized) {
+            adjustUiScale();
+            renderOperators();
+            renderIps();
+            log("Приложение готово.");
+            if (!nodePingExec) log("Внимание: Работа в браузере. Реальный ICMP ping недоступен, проверки будут эмулировать неудачу.");
+            initialized = true;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    window.addEventListener('resize', adjustUiScale);
+  </script>
+</body>
+</html>
