@@ -14,6 +14,7 @@
       --primary: #1e88e5;
       --danger: #e53935;
       --success: #4caf50;
+      --warning: #ff9800;
       --bg: #f5f7fa;
       --panel-bg: #ffffff;
       --border: #ddd;
@@ -91,6 +92,8 @@
     button.danger:hover { background: #d32f2f; }
     button.success { background: var(--success); color: white; border: none; }
     button.success:hover { background: #388e3c; }
+    button.warning { background: var(--warning); color: white; border: none; }
+    button.warning:hover { background: #f57c00; }
     button:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; opacity: 0.7; }
 
     .log {
@@ -140,6 +143,7 @@
     }
     .status-ok { background: #e8f5e9; color: #2e7d32; }
     .status-bad { background: #ffebee; color: #c62828; }
+    .status-pending { background: #fff3e0; color: #ef6c00; }
     .ip-actions { display: inline-flex; gap: calc(6px * var(--ui-scale)); }
 
     .controls-row { display: flex; align-items: center; gap: calc(8px * var(--ui-scale)); padding-bottom: calc(12px * var(--ui-scale)); border-bottom: 1px solid var(--border); margin-bottom: calc(12px * var(--ui-scale)); flex-wrap: wrap; }
@@ -223,6 +227,7 @@
       <div class="row" style="margin-top: var(--gap); justify-content: flex-end; background: #f9f9f9; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
         <button id="resetStatusBtn" style="margin-right: auto;">Сбросить статусы</button>
         <button id="saveReportBtn" class="success">Сохранить отчет</button>
+        <button id="stopCheckBtn" class="warning" style="display: none;" disabled>Остановить</button>
         <button id="checkSelectedBtn" class="primary" style="min-width: 120px;">Проверить выбранные</button>
       </div>
     </section>
@@ -300,14 +305,28 @@
     const STORAGE_IPS = "ip_mgr_ips_v2";
     const STORAGE_OPS = "ip_mgr_ops_v2";
     let operators = loadData(STORAGE_OPS) || [];
-    let ips = (loadData(STORAGE_IPS) || []).map(ip => ({ description: "", ...ip, selected: false }));
+    let ips = (loadData(STORAGE_IPS) || []).map(ip => ({ 
+      description: "", 
+      ...ip, 
+      selected: false, 
+      lastCheck: null,
+      checking: false 
+    }));
     let editingIpId = null;
     let logBuffer = [];
     let initialized = false;
+    let stopRequested = false;
+    let currentCheckProcess = null;
 
     function loadData(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
     function saveData(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
-    function saveAll() { saveData(STORAGE_OPS, operators); saveData(STORAGE_IPS, ips); }
+    function saveAll() { 
+      saveData(STORAGE_OPS, operators); 
+      saveData(STORAGE_IPS, ips.map(ip => {
+        const { checking, ...ipToSave } = ip;
+        return ipToSave;
+      })); 
+    }
 
     // --- UI References ---
     const elements = {
@@ -327,6 +346,7 @@
         opFilter: document.getElementById("operatorFilter"), 
         selectAll: document.getElementById("selectAllIps"),
         checkBtn: document.getElementById("checkSelectedBtn"), 
+        stopBtn: document.getElementById("stopCheckBtn"),
         resetBtn: document.getElementById("resetStatusBtn"), 
         reportBtn: document.getElementById("saveReportBtn"),
         log: document.getElementById("workLog"),
@@ -431,7 +451,8 @@
                     <div class="ip-meta">
                         <span>Таймаут: ${ip.timeout||5000}ms</span>
                         <span>Попытки: ${ip.attempts||4}</span>
-                        ${ip.lastCheck ? `<span class="status-badge ${ip.lastCheck.ok ? 'status-ok' : 'status-bad'}">${ip.lastCheck.ok ? '✔ OK' : '✖ FAIL'} (${ip.lastCheck.stats}, ~${ip.lastCheck.avg}ms)</span>` : ""}
+                        ${ip.checking ? `<span class="status-badge status-pending">Проверяется...</span>` : ""}
+                        ${!ip.checking && ip.lastCheck ? `<span class="status-badge ${ip.lastCheck.ok ? 'status-ok' : 'status-bad'}">${ip.lastCheck.ok ? '✔ OK' : '✖ FAIL'} (${ip.lastCheck.stats}, ~${ip.lastCheck.avg}ms)</span>` : ""}
                     </div>
                 </div>
                 <div class="ip-actions">
@@ -477,6 +498,42 @@
         elements.cancelEditBtn.style.display = "none";
     }
 
+    // --- Stop Functionality ---
+    function stopAllChecks() {
+        if (currentCheckProcess) {
+            stopRequested = true;
+            log("Запрошена остановка проверки...");
+            elements.stopBtn.disabled = true;
+            elements.stopBtn.textContent = "Останавливается...";
+        }
+    }
+
+    function resetCheckState() {
+        stopRequested = false;
+        currentCheckProcess = null;
+        elements.checkBtn.disabled = false;
+        elements.checkBtn.textContent = "Проверить выбранные";
+        elements.stopBtn.style.display = "none";
+        elements.stopBtn.disabled = false;
+        elements.stopBtn.textContent = "Остановить";
+        
+        ips.forEach(ip => {
+            if (ip.checking) {
+                ip.checking = false;
+                if (!ip.lastCheck) {
+                    ip.lastCheck = {
+                        ok: false,
+                        stats: "0/" + (ip.attempts || 4),
+                        avg: 0,
+                        lastCheckTime: new Date().toISOString()
+                    };
+                }
+            }
+        });
+        saveAll();
+        renderIps();
+    }
+
     // --- Core Event Listeners ---
     elements.addOpBtn.onclick = () => {
         try {
@@ -508,13 +565,16 @@
                 description: elements.ipDescInput.value.trim(),
                 operatorId: elements.opSelect.value ? Number(elements.opSelect.value) : "",
                 timeout: Number(elements.timeoutInput.value) || 5000,
-                attempts: Number(elements.attemptsInput.value) || 4
+                attempts: Number(elements.attemptsInput.value) || 4,
+                lastCheck: null,
+                checking: false,
+                selected: false
             };
 
             if (editingIpId) {
                 ips = ips.map(i => i.id === editingIpId ? { ...i, ...ipData } : i);
             } else {
-                ips.push({ id: Date.now(), ...ipData, selected: false, lastCheck: null });
+                ips.push({ id: Date.now(), ...ipData });
             }
             saveAll(); resetForm(); renderIps();
         } catch (error) {
@@ -541,8 +601,11 @@
                  ip.selected = isChecked;
              }
         });
-        saveData(STORAGE_IPS, ips); renderIps();
+        saveAll(); renderIps();
     };
+
+    // --- Stop Button Event Listener ---
+    elements.stopBtn.onclick = stopAllChecks;
 
     // --- Ping Testing with Detailed Logging ---
     elements.checkBtn.onclick = async () => {
@@ -550,18 +613,42 @@
         if (!toCheck.length) return alert("Выберите IP адреса для проверки.");
         
         log(`Запуск проверки ${toCheck.length} адресов...`);
-        const originalText = elements.checkBtn.textContent;
         elements.checkBtn.disabled = true; 
         elements.checkBtn.textContent = "Проверка...";
+        elements.stopBtn.style.display = "inline-block";
+        elements.stopBtn.disabled = false;
+        
+        stopRequested = false;
+        currentCheckProcess = { running: true };
 
         try {
             for (const ip of toCheck) {
+                if (stopRequested) {
+                    log("Проверка прервана пользователем.");
+                    break;
+                }
+                
+                ip.checking = true;
+                ip.lastCheck = null;
+                saveAll();
+                renderIps();
+                
                 log(`Проверка: ${ip.ip} (${ip.description || "без описания"})...`);
                 let okCount = 0, totalTime = 0, successTimes = [];
                 
                 for (let i = 0; i < (ip.attempts || 4); i++) {
+                    if (stopRequested) {
+                        log(`Проверка ${ip.ip} прервана.`);
+                        break;
+                    }
+                    
                     const attemptNum = i + 1;
                     const res = await pingViaSystem(ip.ip, ip.timeout || 5000, attemptNum);
+                    
+                    if (stopRequested) {
+                        log(`Проверка ${ip.ip} прервана.`);
+                        break;
+                    }
                     
                     if (res.ok) {
                         okCount++;
@@ -573,25 +660,40 @@
                     }
                 }
                 
-                const avg = successTimes.length ? Math.round(totalTime / successTimes.length) : 0;
-                ip.lastCheck = { 
-                    ok: okCount > 0, 
-                    stats: `${okCount}/${ip.attempts || 4}`, 
-                    avg: avg,
-                    lastCheckTime: new Date().toISOString()
-                };
+                if (stopRequested) {
+                    ip.checking = false;
+                    ip.lastCheck = {
+                        ok: false,
+                        stats: `${okCount}/${ip.attempts || 4}`,
+                        avg: successTimes.length ? Math.round(totalTime / successTimes.length) : 0,
+                        lastCheckTime: new Date().toISOString()
+                    };
+                    log(`Проверка ${ip.ip} прервана. Частичный результат: ${okCount}/${ip.attempts || 4}`);
+                } else {
+                    const avg = successTimes.length ? Math.round(totalTime / successTimes.length) : 0;
+                    ip.lastCheck = { 
+                        ok: okCount > 0, 
+                        stats: `${okCount}/${ip.attempts || 4}`, 
+                        avg: avg,
+                        lastCheckTime: new Date().toISOString()
+                    };
+                    
+                    log(`Результат ${ip.ip}: ${ip.lastCheck.ok ? "OK" : "FAIL"} (${ip.lastCheck.stats})${avg ? `, среднее: ${avg}ms` : ""}`);
+                }
                 
-                log(`Результат ${ip.ip}: ${ip.lastCheck.ok ? "OK" : "FAIL"} (${ip.lastCheck.stats})${avg ? `, среднее: ${avg}ms` : ""}`);
-                saveData(STORAGE_IPS, ips); 
+                ip.checking = false;
+                saveAll();
                 renderIps();
             }
         } catch (error) {
             console.error("Ошибка при проверке IP:", error);
             log(`Ошибка при проверке: ${error.message}`);
         } finally {
-            elements.checkBtn.disabled = false; 
-            elements.checkBtn.textContent = originalText;
-            log("Проверка завершена.");
+            currentCheckProcess = null;
+            resetCheckState();
+            if (!stopRequested) {
+                log("Проверка завершена.");
+            }
         }
     };
 
@@ -673,7 +775,9 @@
                     description: desc || ips[existingIdx].description,
                     operatorId: opId || ips[existingIdx].operatorId,
                     timeout: timeout,
-                    attempts: attempts
+                    attempts: attempts,
+                    lastCheck: null,
+                    checking: false
                 };
                 updated++;
             } else {
@@ -685,7 +789,8 @@
                     timeout: timeout,
                     attempts: attempts,
                     selected: false,
-                    lastCheck: null
+                    lastCheck: null,
+                    checking: false
                 });
                 added++;
             }
