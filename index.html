@@ -14,12 +14,9 @@
       --primary: #1e88e5;
       --danger: #e53935;
       --success: #4caf50;
-      --warning: #ff9800;
       --bg: #f5f7fa;
       --panel-bg: #ffffff;
       --border: #ddd;
-      --operator-item-height: calc(40px * var(--ui-scale));
-      --ip-item-height: calc(80px * var(--ui-scale));
     }
 
     body {
@@ -92,8 +89,6 @@
     button.danger:hover { background: #d32f2f; }
     button.success { background: var(--success); color: white; border: none; }
     button.success:hover { background: #388e3c; }
-    button.warning { background: var(--warning); color: white; border: none; }
-    button.warning:hover { background: #f57c00; }
     button:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; opacity: 0.7; }
 
     .log {
@@ -119,15 +114,12 @@
         border: 1px solid var(--border);
         border-radius: calc(4px * var(--ui-scale));
         background: #fff;
-        max-height: calc(5 * var(--ip-item-height));
-        box-sizing: border-box;
     }
     .ip-item {
         display: flex; align-items: center; gap: calc(10px * var(--ui-scale));
         padding: calc(8px * var(--ui-scale)) calc(10px * var(--ui-scale));
         border-bottom: 1px solid #eee;
         transition: background 0.1s;
-        box-sizing: border-box;
     }
     .ip-item:hover { background: #f9f9f9; }
     .ip-checkbox { width: calc(18px * var(--ui-scale)); height: calc(18px * var(--ui-scale)); margin: 0; cursor: pointer; }
@@ -143,7 +135,6 @@
     }
     .status-ok { background: #e8f5e9; color: #2e7d32; }
     .status-bad { background: #ffebee; color: #c62828; }
-    .status-pending { background: #fff3e0; color: #ef6c00; }
     .ip-actions { display: inline-flex; gap: calc(6px * var(--ui-scale)); }
 
     .controls-row { display: flex; align-items: center; gap: calc(8px * var(--ui-scale)); padding-bottom: calc(12px * var(--ui-scale)); border-bottom: 1px solid var(--border); margin-bottom: calc(12px * var(--ui-scale)); flex-wrap: wrap; }
@@ -174,7 +165,7 @@
             <input id="newOperatorName" placeholder="Название оператора" class="stretch" />
             <button id="addOperatorBtn" class="primary">Добавить</button>
         </div>
-        <div id="operatorsList" style="max-height: calc(5 * var(--operator-item-height)); overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 4px; box-sizing: border-box;"></div>
+        <div id="operatorsList" style="flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 4px;"></div>
       </div>
     </section>
 
@@ -227,7 +218,6 @@
       <div class="row" style="margin-top: var(--gap); justify-content: flex-end; background: #f9f9f9; padding: 10px; border-radius: 4px; border: 1px solid var(--border);">
         <button id="resetStatusBtn" style="margin-right: auto;">Сбросить статусы</button>
         <button id="saveReportBtn" class="success">Сохранить отчет</button>
-        <button id="stopCheckBtn" class="warning" style="display: none;" disabled>Остановить</button>
         <button id="checkSelectedBtn" class="primary" style="min-width: 120px;">Проверить выбранные</button>
       </div>
     </section>
@@ -293,6 +283,7 @@
             });
         });
       }
+      // Fallback for standard browser environment
       return new Promise(r => setTimeout(() => r({ 
         ok: false, 
         time: 0, 
@@ -305,28 +296,14 @@
     const STORAGE_IPS = "ip_mgr_ips_v2";
     const STORAGE_OPS = "ip_mgr_ops_v2";
     let operators = loadData(STORAGE_OPS) || [];
-    let ips = (loadData(STORAGE_IPS) || []).map(ip => ({ 
-      description: "", 
-      ...ip, 
-      selected: false, 
-      lastCheck: null,
-      checking: false 
-    }));
+    let ips = (loadData(STORAGE_IPS) || []).map(ip => ({ description: "", ...ip, selected: false }));
     let editingIpId = null;
     let logBuffer = [];
     let initialized = false;
-    let stopRequested = false;
-    let currentCheckProcess = null;
 
     function loadData(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
     function saveData(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
-    function saveAll() { 
-      saveData(STORAGE_OPS, operators); 
-      saveData(STORAGE_IPS, ips.map(ip => {
-        const { checking, ...ipToSave } = ip;
-        return ipToSave;
-      })); 
-    }
+    function saveAll() { saveData(STORAGE_OPS, operators); saveData(STORAGE_IPS, ips); }
 
     // --- UI References ---
     const elements = {
@@ -346,7 +323,6 @@
         opFilter: document.getElementById("operatorFilter"), 
         selectAll: document.getElementById("selectAllIps"),
         checkBtn: document.getElementById("checkSelectedBtn"), 
-        stopBtn: document.getElementById("stopCheckBtn"),
         resetBtn: document.getElementById("resetStatusBtn"), 
         reportBtn: document.getElementById("saveReportBtn"),
         log: document.getElementById("workLog"),
@@ -401,7 +377,7 @@
             elements.opFilter.add(new Option(op.name, op.id));
             elements.opSelect.add(new Option(op.name, op.id));
             const div = document.createElement("div");
-            div.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding: 6px; border-bottom:1px solid #eee; box-sizing: border-box;";
+            div.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding: 6px; border-bottom:1px solid #eee;";
             div.innerHTML = `<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:${randomColor(op.id)}"></span>${op.name}</span>`;
             const delBtn = document.createElement("button"); 
             delBtn.textContent = "×"; 
@@ -451,8 +427,7 @@
                     <div class="ip-meta">
                         <span>Таймаут: ${ip.timeout||5000}ms</span>
                         <span>Попытки: ${ip.attempts||4}</span>
-                        ${ip.checking ? `<span class="status-badge status-pending">Проверяется...</span>` : ""}
-                        ${!ip.checking && ip.lastCheck ? `<span class="status-badge ${ip.lastCheck.ok ? 'status-ok' : 'status-bad'}">${ip.lastCheck.ok ? '✔ OK' : '✖ FAIL'} (${ip.lastCheck.stats}, ~${ip.lastCheck.avg}ms)</span>` : ""}
+                        ${ip.lastCheck ? `<span class="status-badge ${ip.lastCheck.ok ? 'status-ok' : 'status-bad'}">${ip.lastCheck.ok ? '✔ OK' : '✖ FAIL'} (${ip.lastCheck.stats}, ~${ip.lastCheck.avg}ms)</span>` : ""}
                     </div>
                 </div>
                 <div class="ip-actions">
@@ -498,42 +473,6 @@
         elements.cancelEditBtn.style.display = "none";
     }
 
-    // --- Stop Functionality ---
-    function stopAllChecks() {
-        if (currentCheckProcess) {
-            stopRequested = true;
-            log("Запрошена остановка проверки...");
-            elements.stopBtn.disabled = true;
-            elements.stopBtn.textContent = "Останавливается...";
-        }
-    }
-
-    function resetCheckState() {
-        stopRequested = false;
-        currentCheckProcess = null;
-        elements.checkBtn.disabled = false;
-        elements.checkBtn.textContent = "Проверить выбранные";
-        elements.stopBtn.style.display = "none";
-        elements.stopBtn.disabled = false;
-        elements.stopBtn.textContent = "Остановить";
-        
-        ips.forEach(ip => {
-            if (ip.checking) {
-                ip.checking = false;
-                if (!ip.lastCheck) {
-                    ip.lastCheck = {
-                        ok: false,
-                        stats: "0/" + (ip.attempts || 4),
-                        avg: 0,
-                        lastCheckTime: new Date().toISOString()
-                    };
-                }
-            }
-        });
-        saveAll();
-        renderIps();
-    }
-
     // --- Core Event Listeners ---
     elements.addOpBtn.onclick = () => {
         try {
@@ -565,16 +504,13 @@
                 description: elements.ipDescInput.value.trim(),
                 operatorId: elements.opSelect.value ? Number(elements.opSelect.value) : "",
                 timeout: Number(elements.timeoutInput.value) || 5000,
-                attempts: Number(elements.attemptsInput.value) || 4,
-                lastCheck: null,
-                checking: false,
-                selected: false
+                attempts: Number(elements.attemptsInput.value) || 4
             };
 
             if (editingIpId) {
                 ips = ips.map(i => i.id === editingIpId ? { ...i, ...ipData } : i);
             } else {
-                ips.push({ id: Date.now(), ...ipData });
+                ips.push({ id: Date.now(), ...ipData, selected: false, lastCheck: null });
             }
             saveAll(); resetForm(); renderIps();
         } catch (error) {
@@ -601,11 +537,8 @@
                  ip.selected = isChecked;
              }
         });
-        saveAll(); renderIps();
+        saveData(STORAGE_IPS, ips); renderIps();
     };
-
-    // --- Stop Button Event Listener ---
-    elements.stopBtn.onclick = stopAllChecks;
 
     // --- Ping Testing with Detailed Logging ---
     elements.checkBtn.onclick = async () => {
@@ -613,42 +546,18 @@
         if (!toCheck.length) return alert("Выберите IP адреса для проверки.");
         
         log(`Запуск проверки ${toCheck.length} адресов...`);
+        const originalText = elements.checkBtn.textContent;
         elements.checkBtn.disabled = true; 
         elements.checkBtn.textContent = "Проверка...";
-        elements.stopBtn.style.display = "inline-block";
-        elements.stopBtn.disabled = false;
-        
-        stopRequested = false;
-        currentCheckProcess = { running: true };
 
         try {
             for (const ip of toCheck) {
-                if (stopRequested) {
-                    log("Проверка прервана пользователем.");
-                    break;
-                }
-                
-                ip.checking = true;
-                ip.lastCheck = null;
-                saveAll();
-                renderIps();
-                
                 log(`Проверка: ${ip.ip} (${ip.description || "без описания"})...`);
                 let okCount = 0, totalTime = 0, successTimes = [];
                 
                 for (let i = 0; i < (ip.attempts || 4); i++) {
-                    if (stopRequested) {
-                        log(`Проверка ${ip.ip} прервана.`);
-                        break;
-                    }
-                    
                     const attemptNum = i + 1;
                     const res = await pingViaSystem(ip.ip, ip.timeout || 5000, attemptNum);
-                    
-                    if (stopRequested) {
-                        log(`Проверка ${ip.ip} прервана.`);
-                        break;
-                    }
                     
                     if (res.ok) {
                         okCount++;
@@ -660,40 +569,25 @@
                     }
                 }
                 
-                if (stopRequested) {
-                    ip.checking = false;
-                    ip.lastCheck = {
-                        ok: false,
-                        stats: `${okCount}/${ip.attempts || 4}`,
-                        avg: successTimes.length ? Math.round(totalTime / successTimes.length) : 0,
-                        lastCheckTime: new Date().toISOString()
-                    };
-                    log(`Проверка ${ip.ip} прервана. Частичный результат: ${okCount}/${ip.attempts || 4}`);
-                } else {
-                    const avg = successTimes.length ? Math.round(totalTime / successTimes.length) : 0;
-                    ip.lastCheck = { 
-                        ok: okCount > 0, 
-                        stats: `${okCount}/${ip.attempts || 4}`, 
-                        avg: avg,
-                        lastCheckTime: new Date().toISOString()
-                    };
-                    
-                    log(`Результат ${ip.ip}: ${ip.lastCheck.ok ? "OK" : "FAIL"} (${ip.lastCheck.stats})${avg ? `, среднее: ${avg}ms` : ""}`);
-                }
+                const avg = successTimes.length ? Math.round(totalTime / successTimes.length) : 0;
+                ip.lastCheck = { 
+                    ok: okCount > 0, 
+                    stats: `${okCount}/${ip.attempts || 4}`, 
+                    avg: avg,
+                    lastCheckTime: new Date().toISOString()
+                };
                 
-                ip.checking = false;
-                saveAll();
+                log(`Результат ${ip.ip}: ${ip.lastCheck.ok ? "OK" : "FAIL"} (${ip.lastCheck.stats})${avg ? `, среднее: ${avg}ms` : ""}`);
+                saveData(STORAGE_IPS, ips); 
                 renderIps();
             }
         } catch (error) {
             console.error("Ошибка при проверке IP:", error);
             log(`Ошибка при проверке: ${error.message}`);
         } finally {
-            currentCheckProcess = null;
-            resetCheckState();
-            if (!stopRequested) {
-                log("Проверка завершена.");
-            }
+            elements.checkBtn.disabled = false; 
+            elements.checkBtn.textContent = originalText;
+            log("Проверка завершена.");
         }
     };
 
@@ -775,9 +669,7 @@
                     description: desc || ips[existingIdx].description,
                     operatorId: opId || ips[existingIdx].operatorId,
                     timeout: timeout,
-                    attempts: attempts,
-                    lastCheck: null,
-                    checking: false
+                    attempts: attempts
                 };
                 updated++;
             } else {
@@ -789,8 +681,7 @@
                     timeout: timeout,
                     attempts: attempts,
                     selected: false,
-                    lastCheck: null,
-                    checking: false
+                    lastCheck: null
                 });
                 added++;
             }
@@ -832,6 +723,7 @@
     elements.exportFileBtn.onclick = () => {
         try {
             const csvContent = generateCsvContent();
+            // Добавляем BOM для корректного отображения кириллицы в Excel
             const bom = '\uFEFF';
             const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -866,8 +758,10 @@
             
             const date = new Date().toLocaleString();
             
+            // Генерируем CSV отчет
             let csv = generateReportCsvContent();
             
+            // Добавляем BOM для корректного отображения кириллицы в Excel
             const bom = '\uFEFF';
             const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -890,12 +784,14 @@
         
         let csv = "";
         
+        // Заголовок отчета
         csv += "ОТЧЕТ О ПРОВЕРКЕ IP АДРЕСОВ\n";
         csv += `Дата генерации:,${date}\n`;
         csv += `Всего проверено адресов:,${checked.length}\n`;
         csv += `Успешно доступно:,${success.length}\n`;
         csv += `Недоступно:,${fail.length}\n\n`;
         
+        // Сводка по операторам
         csv += "=== СВОДКА ПО ОПЕРАТОРАМ ===\n";
         csv += "Оператор,Всего проверок,Успешно,Неудачно,Процент успеха\n";
         
@@ -923,6 +819,7 @@
         
         csv += "\n";
         
+        // Детальная информация обо всех проверенных IP
         csv += "=== ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО IP АДРЕСАМ ===\n";
         csv += "№,IP адрес,Оператор,Описание,Таймаут(мс),Попытки,Статус,Успешные попытки,Среднее время(мс),Дата проверки\n";
         
@@ -938,6 +835,7 @@
         
         csv += "\n";
         
+        // Успешные соединения
         if (success.length) {
             csv += "=== УСПЕШНЫЕ СОЕДИНЕНИЯ ===\n";
             csv += "№,IP адрес,Оператор,Описание,Успешные попытки,Среднее время(мс)\n";
@@ -948,6 +846,7 @@
             csv += "\n";
         }
         
+        // Недоступные адреса
         if (fail.length) {
             csv += "=== НЕДОСТУПНЫЕ АДРЕСА ===\n";
             csv += "№,IP адрес,Оператор,Описание,Успешные попытки\n";
@@ -981,7 +880,10 @@
         }
     }
 
+    // Инициализация при загрузке
     document.addEventListener('DOMContentLoaded', init);
+    
+    // При изменении размера окна только меняем масштаб
     window.addEventListener('resize', adjustUiScale);
   </script>
 </body>
